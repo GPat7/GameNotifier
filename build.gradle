@@ -1,0 +1,30 @@
+plugins {
+    id 'org.jetbrains.kotlin.jvm' version '1.5.10'
+    id 'java'
+}
+
+group 'royal.game.notifier'
+version '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+    mavenCentral()
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib"
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.1'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.8.1'
+
+    implementation group: 'com.github.twitch4j', name: 'twitch4j', version: '1.8.0'
+    // or using it into compile
+    api group: 'com.github.twitch4j', name: 'twitch4j', version: '1.8.0'
+
+    implementation group: 'ch.qos.logback', name: 'logback-classic', version: '1.2.10'
+
+    implementation("net.dv8tion:JDA:5.0.0-alpha.4")
+}
+
+test {
+    useJUnitPlatform()
+}

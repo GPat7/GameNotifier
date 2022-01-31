@@ -24,7 +24,7 @@ class GameNotifier : ListenerAdapter() {
 
     init {
         properties = Properties()
-        properties.load(FileInputStream(File("config.properties")))
+        properties.load(FileInputStream(File(System.getProperty("ConfigFile"))))
 
         jda = JDABuilder.createDefault(properties.getProperty("discordToken")).build()
         jda.addEventListener(this)

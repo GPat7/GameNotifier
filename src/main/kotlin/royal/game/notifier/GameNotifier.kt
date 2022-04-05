@@ -20,10 +20,9 @@ class GameNotifier : ListenerAdapter() {
     private val jda: JDA
     private val streamers = HashMap<String, ArrayList<Subscription>>()
     private val twitchClient: TwitchClient
-    private val properties: Properties
+    private val properties: Properties = Properties()
 
     init {
-        properties = Properties()
         properties.load(FileInputStream(File(System.getProperty("ConfigFile"))))
 
         jda = JDABuilder.createDefault(properties.getProperty("discordToken")).build()
@@ -34,6 +33,30 @@ class GameNotifier : ListenerAdapter() {
             .withClientSecret(properties.getProperty("twitchSecret"))
             .withEnableHelix(true)
             .build()
+
+        twitchClient.eventManager.onEvent(ChannelGoLiveEvent::class.java) { event ->
+            if(streamers.isNotEmpty()) {
+                for (sub: Subscription in streamers[event.channel.name]!!) {
+                    if (event.stream.gameName.lowercase(Locale.getDefault()) == sub.game.lowercase(Locale.getDefault()) && !sub.exclude) {
+                        sub.channel.sendMessage("<@${sub.subscriber}>, ${sub.streamer} Just started playing ${sub.game}!")
+                            .queue()
+                    }
+                    println("[${event.channel.name}] went live with title ${event.stream.title} on game ${event.stream.gameName}!");
+                }
+            }
+        }
+
+        twitchClient.eventManager.onEvent(ChannelChangeGameEvent::class.java) { event ->
+            if(streamers.isNotEmpty()) {
+                for (sub: Subscription in streamers[event.channel.name]!!) {
+                    if ((event.stream.gameName.lowercase(Locale.getDefault()) == sub.game.lowercase(Locale.getDefault()) && !sub.exclude) || (event.stream.gameName != sub.game && sub.exclude)) {
+                        println("${event.channel.name} started playing ${event.stream.gameName}")
+                        sub.channel.sendMessage("<@${sub.subscriber}>, ${sub.streamer} Just started playing ${sub.game}!")
+                            .queue()
+                    }
+                }
+            }
+        }
     }
 
     override fun onMessageReceived(event: MessageReceivedEvent) {
@@ -45,7 +68,7 @@ class GameNotifier : ListenerAdapter() {
                 //TODO Check for game
                 val game = msg.contentRaw.substring(commands[0].length + commands[1].length + 2, msg.contentRaw.length)
 
-                addGameSubscription(Subscription(streamer, game, event.author.id, false, event.channel))
+                addGameSubscription(Subscription(streamer.lowercase(Locale.getDefault()), game, event.author.id, false, event.channel))
             }
             else {
                 errorMessage(event.channel)
@@ -109,30 +132,11 @@ class GameNotifier : ListenerAdapter() {
         }
         channel.sendMessage(subBuilder.toString()).queue()
     }
-
-    //FIXME Getting duplicate messages
+    
     private fun addGameSubscription(subscription: Subscription) {
-
         if(!streamers.containsKey(subscription.streamer)) {
             streamers[subscription.streamer] = arrayListOf(subscription)
             twitchClient.clientHelper.enableStreamEventListener(subscription.streamer)
-            twitchClient.eventManager.onEvent(ChannelGoLiveEvent::class.java) { event ->
-                for(sub: Subscription in streamers[subscription.streamer]!!) {
-                    if (event.stream.gameName == sub.game && !sub.exclude) {
-                        sub.channel.sendMessage("<@${sub.subscriber}>, ${sub.streamer} Just started playing ${sub.game}!").queue()
-                    }
-                    println("[${event.channel.name}] went live with title ${event.stream.title} on game ${event.stream.gameName}!");
-                }
-            }
-
-            twitchClient.eventManager.onEvent(ChannelChangeGameEvent::class.java) { event ->
-                for(sub: Subscription in streamers[subscription.streamer]!!) {
-                    if ((event.stream.gameName == sub.game && !sub.exclude) || (event.stream.gameName != sub.game && sub.exclude)) {
-                        println("${event.channel.name} started playing ${event.stream.gameName}")
-                        sub.channel.sendMessage("<@${sub.subscriber}>, ${sub.streamer} Just started playing ${sub.game}!").queue()
-                    }
-                }
-            }
         }
         else {
             streamers[subscription.streamer]?.add(subscription)

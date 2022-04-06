@@ -7,8 +7,12 @@ import com.github.twitch4j.events.ChannelGoLiveEvent
 import net.dv8tion.jda.api.JDA
 import net.dv8tion.jda.api.JDABuilder
 import net.dv8tion.jda.api.entities.MessageChannel
+import net.dv8tion.jda.api.entities.User
+import net.dv8tion.jda.api.events.interaction.SlashCommandEvent
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent
 import net.dv8tion.jda.api.hooks.ListenerAdapter
+import net.dv8tion.jda.api.interactions.commands.OptionType
+import net.dv8tion.jda.api.interactions.commands.build.CommandData
 import java.io.File
 import java.io.FileInputStream
 import java.util.*
@@ -21,6 +25,16 @@ class GameNotifier : ListenerAdapter() {
     private val streamers = HashMap<String, ArrayList<Subscription>>()
     private val twitchClient: TwitchClient
     private val properties: Properties = Properties()
+
+    private val ADD_SUB = "addsub"
+    private val CLEAR_SUBS = "clearsubs"
+    private val GET_SUBS = "getsubs"
+    private val HELP = "help"
+    private val EXCLUDE = "exclude"
+
+    private val STREAMER = "streamer"
+    private val GAME = "game"
+
 
     init {
         properties.load(FileInputStream(File(System.getProperty("ConfigFile"))))
@@ -57,62 +71,91 @@ class GameNotifier : ListenerAdapter() {
                 }
             }
         }
+
+        jda.awaitReady()
+        addCommands()
     }
 
-    override fun onMessageReceived(event: MessageReceivedEvent) {
-        val msg = event.message
-        if (msg.contentRaw.startsWith("!subGame")) {
-            val commands = msg.contentRaw.split(" ")
-            if(commands.size > 1) {
-                val streamer = commands[1]
-                //TODO Check for game
-                val game = msg.contentRaw.substring(commands[0].length + commands[1].length + 2, msg.contentRaw.length)
+    private fun addCommands() {
+        val commands = ArrayList<CommandData>()
 
-                addGameSubscription(Subscription(streamer.lowercase(Locale.getDefault()), game, event.author.id, false, event.channel))
-            }
-            else {
-                errorMessage(event.channel)
-            }
-        }
-        else if (msg.contentRaw.startsWith("!subNotGame")) {
+        var command = CommandData(ADD_SUB, "Adds a subscription for a streamer playing a specific game")
+        command.addOption(OptionType.STRING, STREAMER, "The Streamer to Subscribe to", true)
+        command.addOption(OptionType.STRING, GAME, "Game to subscribe to for the streamer", true)
+        commands.add(command)
 
-            val commands = msg.contentRaw.split(" ")
-            if(commands.size > 1) {
-                val streamer = commands[1]
-                val game = msg.contentRaw.substring(2, msg.contentRaw.length)
+        command = CommandData(CLEAR_SUBS, "Remove all subscriptions from all streamers or a specific streamer")
+        command.addOption(OptionType.STRING, STREAMER, "The Streamer to remove all subscriptions from")
+        commands.add(command)
 
-                addGameSubscription(Subscription(streamer, game, event.author.id, true, event.channel))
-            }
-            else {
-                errorMessage(event.channel)
-            }
+        command = CommandData(GET_SUBS, "Gets a list of all current subscriptions")
+        commands.add(command)
+
+        command = CommandData(HELP, "Returns the list of commands that can be called")
+        commands.add(command)
+
+        command = CommandData(EXCLUDE, "Adds a subscription for a streamer playing all EXCEPT a specific game")
+        command.addOption(OptionType.STRING, STREAMER, "The Streamer to Subscribe to", true)
+        command.addOption(OptionType.STRING, GAME, "Game to be excluded from for the streamer", true)
+        commands.add(command)
+
+
+        //Debug code
+        //jda.getGuildById(731300630378971138)?.upsertCommand(command)
+
+        for (commandData in commands) {
+            jda.upsertCommand(commandData).queue()
         }
-        else if (msg.contentRaw.startsWith("!getSubs")) {
-            getSubs(event.author.id, event.channel)
-        }
-        else if (msg.contentRaw.startsWith("!clear")) {
-            val commands = msg.contentRaw.split(" ")
-            if(commands.size == 1) {
-                removeSubscription(event.author.id, event.channel)
+
+
+    }
+
+    override fun onSlashCommand(event: SlashCommandEvent) {
+
+        when(event.name) {
+            ADD_SUB -> {
+                val streamer = event.getOption(STREAMER)?.asString?.lowercase(Locale.getDefault())
+                val game = event.getOption(GAME)?.asString?.lowercase(Locale.getDefault())
+                if(streamer != null && game != null) {
+                    event.reply(addGameSubscription(Subscription(streamer, game, event.user.id, false, event.channel))).queue()
+                }
+                else {
+                    event.reply("Unable to create subscription. Check command and try again").queue()
+                }
             }
-            else {
-                removeSubscription(event.author.id, commands[1], event.channel)
+            CLEAR_SUBS -> {
+                val streamer = event.getOption(STREAMER)
+                if(streamer == null) {
+                    event.reply(removeSubscription(event.user.id)).queue()
+                }
+                else {
+                    event.reply(removeSubscription(event.user.id, streamer.asString)).queue()
+                }
             }
-        }
-        else if(msg.contentRaw.startsWith("!help")) {
-            event.channel.sendMessage("List of commands:\n" +
-                    "```!subGame <streamer> <game>\n" +
-                    "!subNotGame <streamer> <game>\n" +
-                    "!getSubs\n" +
-                    "!clear```").queue()
+            GET_SUBS -> {
+                event.reply(getSubs(event.user.id)).queue()
+            }
+            HELP -> {
+                event.reply("List of commands:\n" +
+                        "```/${ADD_SUB} <streamer> <game>\n" +
+                        "/${EXCLUDE} <streamer> <game>\n" +
+                        "/${GET_SUBS}\n" +
+                        "/${CLEAR_SUBS} optional:<streamer>```").queue()
+            }
+            EXCLUDE -> {
+                val streamer = event.getOption(STREAMER)?.asString?.lowercase(Locale.getDefault())
+                val game = event.getOption(GAME)?.asString?.lowercase(Locale.getDefault())
+                if(streamer != null && game != null) {
+                    event.reply(addGameSubscription(Subscription(streamer, game, event.user.id, true, event.channel))).queue()
+                }
+                else {
+                    event.reply("Unable to create subscription. Check command and try again").queue()
+                }
+            }
         }
     }
 
-    private fun errorMessage(channel: MessageChannel) {
-        channel.sendMessage("Command was not valid. Type !help for a list of valid commands").queue()
-    }
-
-    private fun getSubs(subscriber: String, channel: MessageChannel) {
+    private fun getSubs(subscriber: String): String {
         val subscriptions = ArrayList<Subscription>()
         val streamerIterator = streamers.entries.iterator()
         while (streamerIterator.hasNext()) {
@@ -126,14 +169,15 @@ class GameNotifier : ListenerAdapter() {
             }
         }
 
-        val subBuilder = StringBuilder().append("List of Subscriptions for <${subscriber}>:\n")
+        val subBuilder = StringBuilder().append("List of Subscriptions for <@${subscriber}>:\n")
         for (subscription in subscriptions) {
             subBuilder.append("${subscription.streamer}: ${subscription.game}\n")
         }
-        channel.sendMessage(subBuilder.toString()).queue()
+        return subBuilder.toString()
     }
     
-    private fun addGameSubscription(subscription: Subscription) {
+    private fun addGameSubscription(subscription: Subscription): String {
+        //FIXME subs may still not be fully removed correctly. Not sure
         if(!streamers.containsKey(subscription.streamer)) {
             streamers[subscription.streamer] = arrayListOf(subscription)
             twitchClient.clientHelper.enableStreamEventListener(subscription.streamer)
@@ -141,10 +185,10 @@ class GameNotifier : ListenerAdapter() {
         else {
             streamers[subscription.streamer]?.add(subscription)
         }
-        subscription.channel.sendMessage("<@${subscription.subscriber}>, subscription created for ${subscription.streamer} playing ${subscription.game}").queue()
+        return "Subscription created for ${subscription.streamer} playing ${subscription.game}"
     }
 
-    private fun removeSubscription(subscriber: String, channel: MessageChannel) {
+    private fun removeSubscription(subscriber: String): String {
         val streamerIterator = streamers.entries.iterator()
         while (streamerIterator.hasNext()) {
             val entry = streamerIterator.next()
@@ -160,17 +204,17 @@ class GameNotifier : ListenerAdapter() {
                 }
             }
         }
-
-        channel.sendMessage("<@${subscriber}>, All Subscriptions removed").queue()
+        return "All Subscriptions removed"
     }
 
-    private fun removeSubscription(subscriber: String, streamer: String, channel: MessageChannel) {
+    private fun removeSubscription(subscriber: String, streamer: String): String {
+        val stringBuilder = StringBuilder("removing subscription for ")
         val iterator = streamers[streamer]?.iterator()
         if(iterator != null) {
             while(iterator.hasNext()) {
                 val sub = iterator.next()
                 if(sub.subscriber == subscriber) {
-                    channel.sendMessage("<@${sub.subscriber}>, removing subscription for ${sub.streamer}").queue()
+                    stringBuilder.append(sub.streamer)
                     iterator.remove()
                 }
             }
@@ -178,6 +222,6 @@ class GameNotifier : ListenerAdapter() {
         if(streamers[streamer].isNullOrEmpty()) {
             streamers.remove(streamer)
         }
+        return stringBuilder.toString()
     }
-
 }
